@@ -130,10 +130,13 @@ class KgRnnCVAE(BaseTFModel):
         self.eos_id = self.rev_vocab["</s>"]
         self.context_cell_size = config.cxt_cell_size
         self.sent_cell_size = config.sent_cell_size
+        self.da_cell_size = config.da_cell_size
         self.dec_cell_size = config.dec_cell_size
 
         self.use_hcf = config.use_hcf
+        self.use_da_seq = config.use_da_seq
         self.embed_size = config.embed_size
+        self.da_embed_size = config.da_embed_size
         self.sent_type = config.sent_type
         self.keep_prob = config.keep_prob
         self.num_layer = config.num_layer
@@ -160,6 +163,10 @@ class KgRnnCVAE(BaseTFModel):
             self.bi_sent_cell = self.get_rnncell("gru", self.embed_size, self.sent_cell_size, keep_prob=1.0, num_layer=1, bidirectional=True)
             input_embedding_size = output_embedding_size = self.sent_cell_size * 2
 
+        # TODO: define RNN cell for DA
+        if self.use_da_seq:
+            self.da_seq_cell = self.get_rnncell("gru", self.da_embed_size, self.da_cell_size, self.keep_prob, 1)
+
         joint_embedding_size = input_embedding_size + 2
 
         # contextRNN
@@ -168,7 +175,8 @@ class KgRnnCVAE(BaseTFModel):
         self.attribute_fc1 = nn.Sequential(nn.Linear(config.da_embed_size, 30), nn.Tanh())
 
         cond_embedding_size = config.topic_embed_size + 4 + 4 + self.context_cell_size
-
+        if config.use_da_seq:
+            cond_embedding_size += self.da_cell_size
         # recognitionNetwork
         recog_input_size = cond_embedding_size + output_embedding_size
         if self.use_hcf:
@@ -227,7 +235,7 @@ class KgRnnCVAE(BaseTFModel):
             self.topics = tf.placeholder(dtype=tf.int32, shape=(None,), name="topics")
             self.my_profile = tf.placeholder(dtype=tf.float32, shape=(None, 4), name="my_profile")
             self.ot_profile = tf.placeholder(dtype=tf.float32, shape=(None, 4), name="ot_profile")
-
+            self.da_seq = tf.placeholder(dtype=tf.int32, shape=(None, self.max_utt_len), name="da_seq")
             # target response given the dialog context
             self.output_tokens = tf.placeholder(dtype=tf.int32, shape=(None, None), name="output_token")
             self.output_lens = tf.placeholder(dtype=tf.int32, shape=(None,), name="output_lens")
@@ -238,7 +246,7 @@ class KgRnnCVAE(BaseTFModel):
             self.use_prior = tf.placeholder(dtype=tf.bool, name="use_prior")
 
 
-    def learning_rate_decay():
+    def learning_rate_decay(self):
         self.learning_rate = self.learning_rate * config.lr_decay
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = self.learning_rate
@@ -257,18 +265,25 @@ class KgRnnCVAE(BaseTFModel):
         if self.use_hcf:
             with variable_scope.variable_scope("dialogActEmbedding"):
                 da_embedding = self.d_embedding(self.output_das)
+                # TODO: define Encoder for DA
+                # if self.use_da_seq:
+                    # self.da_seq = self.da_seq.view(-1, 1)
+                    # da_input_embedding = self.d_embedding(self.da_seq)
+                    # print(da_input_embedding.size())
+                    # da_input_embedding, da_sent_size = get_rnn_encode(da_input_embedding, self.da_seq_cell, scope="sent_rnn")
+                    # da_input_embedding = da_input_embedding.view(-1, max_dialog_len, da_sent_size)
 
         with variable_scope.variable_scope("wordEmbedding"):
-
             self.input_contexts = self.input_contexts.view(-1, self.max_utt_len)
             input_embedding = self.embedding(self.input_contexts)
             #input_embedding = input_embedding.view(-1, self.max_utt_len, self.embed_size)
             output_embedding = self.embedding(self.output_tokens)
 
+
             # print(self.input_contexts.numel())
             # print((self.input_contexts.view(-1, self.max_utt_len) > 0)[:10])
             # print((torch.max(torch.abs(input_embedding), 2)[0] > 0)[:10])
-            #print(self.embedding.weight.data[1:2])
+            # print(self.embedding.weight.data[1:2])
             assert ((self.input_contexts.view(-1, self.max_utt_len) > 0).float() - (torch.max(torch.abs(input_embedding), 2)[0] > 0).float()).abs().sum().item() == 0,\
                 str(((self.input_contexts.view(-1, self.max_utt_len) > 0).float() - (torch.max(torch.abs(input_embedding), 2)[0] > 0).float()).abs().sum().item())
 
@@ -277,19 +292,27 @@ class KgRnnCVAE(BaseTFModel):
                 output_embedding, _ = get_bow(output_embedding)
 
             elif self.sent_type == "rnn":
-                input_embedding, sent_size = get_rnn_encode(input_embedding, self.sent_cell, self.keep_prob, scope="sent_rnn")
+                input_embedding, sent_size = get_rnn_encode(input_embedding, self.sent_cell, scope="sent_rnn")
                 output_embedding, _ = get_rnn_encode(output_embedding, self.sent_cell, self.output_lens,
-                                                     self.keep_prob, scope="sent_rnn", reuse=True)
+                                                     scope="sent_rnn", reuse=True)
             elif self.sent_type == "bi_rnn":
                 input_embedding, sent_size = get_bi_rnn_encode(input_embedding, self.bi_sent_cell, scope="sent_bi_rnn")
                 output_embedding, _ = get_bi_rnn_encode(output_embedding, self.bi_sent_cell, self.output_lens, scope="sent_bi_rnn", reuse=True)
             else:
                 raise ValueError("Unknown sent_type. Must be one of [bow, rnn, bi_rnn]")
 
+            if self.use_da_seq:
+                # self.da_seq = self.da_seq.view(-1, 1)
+                da_input_embedding = self.d_embedding(self.da_seq)
+                da_input_embedding, da_sent_size = get_rnn_encode(da_input_embedding, self.da_seq_cell,
+                                                                  scope="sent_rnn")
+                # da_input_embedding = da_input_embedding.view(-1, max_dialog_len, da_sent_size)
+
             # reshape input into dialogs
             input_embedding = input_embedding.view(-1, max_dialog_len, sent_size)
             if self.keep_prob < 1.0:
                 input_embedding = F.dropout(input_embedding, 1 - self.keep_prob, self.training)
+                da_input_embedding = F.dropout(da_input_embedding, 1 - self.keep_prob, self.training)
 
             # convert floors into 1 hot
             floor_one_hot = self.floors.new_zeros((self.floors.numel(), 2), dtype=torch.float)
@@ -319,12 +342,14 @@ class KgRnnCVAE(BaseTFModel):
             else:
                 enc_last_state = enc_last_state.squeeze(0)
 
+
+
         # combine with other attributes
         if self.use_hcf:
             attribute_embedding = da_embedding
             attribute_fc1 = self.attribute_fc1(attribute_embedding)
 
-        cond_list = [topic_embedding, self.my_profile, self.ot_profile, enc_last_state]
+        cond_list = [da_input_embedding, topic_embedding, self.my_profile, self.ot_profile, enc_last_state]
         cond_embedding = torch.cat(cond_list, 1)
 
         with variable_scope.variable_scope("recognitionNetwork"):
@@ -468,12 +493,12 @@ class KgRnnCVAE(BaseTFModel):
                 self.est_marginal = torch.mean(rc_loss + bow_loss - self.log_p_z + self.log_q_z_xy)
 
     def batch_2_feed(self, batch, global_t, use_prior, repeat=1):
-        context, context_lens, floors, topics, my_profiles, ot_profiles, outputs, output_lens, output_das = batch
+        context, context_lens, floors, topics, my_profiles, ot_profiles, outputs, output_lens, output_das, da_seq = batch
         feed_dict = {"input_contexts": context, "context_lens":context_lens,
                      "floors": floors, "topics":topics, "my_profile": my_profiles,
                      "ot_profile": ot_profiles, "output_tokens": outputs,
                      "output_das": output_das, "output_lens": output_lens,
-                     "use_prior": use_prior}
+                     "use_prior": use_prior, "da_seq": da_seq}
         if repeat > 1:
             tiled_feed_dict = {}
             for key, val in feed_dict.items():

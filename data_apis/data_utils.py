@@ -123,16 +123,19 @@ class SWDADataLoader(LongDataLoader):
 
         # input_context, context_lens, floors, topics, a_profiles, b_Profiles, outputs, output_lens
         context_lens, context_utts, floors, out_utts, out_lens, out_floors, out_das = [], [], [], [], [], [], []
+        da_seq = []
         for row in rows:
             if s_id < len(row)-1:
                 cut_row = row[s_id:e_id]
                 in_row = cut_row[0:-1]
                 out_row = cut_row[-1]
                 out_utt, out_floor, out_feat = out_row
+                assert all(feat is not None for utt, floor, feat in in_row), in_row
 
                 context_utts.append([self.pad_to(utt) for utt, floor, feat in in_row])
                 floors.append([int(floor==out_floor) for utt, floor, feat in in_row])
                 context_lens.append(len(cut_row) - 1)
+                da_seq.append([feat[0] for utt, floor, feat in in_row])
 
                 out_utt = self.pad_to(out_utt, do_pad=False)
                 out_utts.append(out_utt)
@@ -152,13 +155,22 @@ class SWDADataLoader(LongDataLoader):
         vec_outs = np.zeros((self.batch_size, np.max(out_lens)), dtype=np.int64)
         vec_out_lens = np.array(out_lens, dtype=np.int64)
         vec_out_das = np.array(out_das, dtype=np.int64)
+        
+        # padding
+        max_conv_len = max(len(seq) for seq in da_seq)
+        for seq_idx in range(len(da_seq)):
+            da_seq[seq_idx] = da_seq[seq_idx] + [0 for _ in range(max_conv_len - len(da_seq[seq_idx]))]
+
+        vec_da_seq = np.array(da_seq, dtype=np.int64)
 
         for b_id in range(self.batch_size):
             vec_outs[b_id, 0:vec_out_lens[b_id]] = out_utts[b_id]
             vec_floors[b_id, 0:vec_context_lens[b_id]] = floors[b_id]
             vec_context[b_id, 0:vec_context_lens[b_id], :] = np.array(context_utts[b_id])
 
-        return vec_context, vec_context_lens, vec_floors, topics, my_profiles, ot_profiles, vec_outs, vec_out_lens, vec_out_das
+        return vec_context, vec_context_lens, vec_floors, \
+               topics, my_profiles, ot_profiles, vec_outs, \
+               vec_out_lens, vec_out_das, vec_da_seq
 
 
 

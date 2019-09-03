@@ -96,7 +96,9 @@ class SWDADialogCorpus(object):
         for dialog in self.train_corpus[self.dialog_id]:
             all_dialog_acts.extend([feat[self.dialog_act_id] for caller, utt, feat in dialog if feat is not None])
         self.dialog_act_vocab = [t for t, cnt in Counter(all_dialog_acts).most_common()]
+        self.dialog_act_vocab.append('initial-utt')
         self.rev_dialog_act_vocab = {t: idx for idx, t in enumerate(self.dialog_act_vocab)}
+
         print(self.dialog_act_vocab)
         print("%d dialog acts in train data" % len(self.dialog_act_vocab))
 
@@ -145,7 +147,7 @@ class SWDADialogCorpus(object):
                         id_feat = list(feat)
                         id_feat[self.dialog_act_id] = self.rev_dialog_act_vocab[feat[self.dialog_act_id]]
                     else:
-                        id_feat = None
+                        id_feat = [self.rev_dialog_act_vocab['initial-utt']]
                     temp.append(([self.rev_vocab.get(t, self.unk_id) for t in utt], floor, id_feat))
                 results.append(temp)
             return results

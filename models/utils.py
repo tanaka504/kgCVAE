@@ -116,7 +116,7 @@ def get_rnn_encode(embedding, cell, length_mask=None, scope=None, reuse=None):
 
         # get only the last layer
         encoded_input = encoded_input[-1]
-        return encoded_input, rnn.hidden_size
+        return encoded_input, cell.hidden_size
 
 
 def get_bi_rnn_encode(embedding, cell, length_mask=None, scope=None, reuse=None):

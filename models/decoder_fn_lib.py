@@ -95,7 +95,8 @@ def inference_loop(cell, output_fn, embeddings,
         cell_output = cell_output * (~done).float().unsqueeze(1)
 
     return torch.cat([_.unsqueeze(1) for _ in outputs], 1), cell_state, torch.cat([_.unsqueeze(1) for _ in context_state], 1)
-  
+
+# TODO: implement Decoder for Merge Model
 
 def train_loop(cell, output_fn, inputs, init_state, context_vector, sequence_length):
     if context_vector is not None:
