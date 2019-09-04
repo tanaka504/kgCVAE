@@ -5,6 +5,7 @@ class KgCVAEConfig(object):
     description= None
     use_hcf = True  # use dialog act in training (if turn off kgCVAE -> CVAE)
     use_da_seq = True
+    use_feat = False
     update_limit = 3000  # the number of mini-batch before evaluating the model
 
     # how to encode utterance.

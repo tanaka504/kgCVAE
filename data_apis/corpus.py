@@ -95,7 +95,7 @@ class SWDADialogCorpus(object):
         all_dialog_acts = []
         for dialog in self.train_corpus[self.dialog_id]:
             all_dialog_acts.extend([feat[self.dialog_act_id] for caller, utt, feat in dialog if feat is not None])
-        self.dialog_act_vocab = [t for t, cnt in Counter(all_dialog_acts).most_common()]
+        self.dialog_act_vocab = ['padding'] + [t for t, cnt in Counter(all_dialog_acts).most_common()]
         self.dialog_act_vocab.append('initial-utt')
         self.rev_dialog_act_vocab = {t: idx for idx, t in enumerate(self.dialog_act_vocab)}
 

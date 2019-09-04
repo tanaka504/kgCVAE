@@ -135,6 +135,7 @@ class KgRnnCVAE(BaseTFModel):
 
         self.use_hcf = config.use_hcf
         self.use_da_seq = config.use_da_seq
+        self.use_feat = config.use_feat
         self.embed_size = config.embed_size
         self.da_embed_size = config.da_embed_size
         self.sent_type = config.sent_type
@@ -149,7 +150,7 @@ class KgRnnCVAE(BaseTFModel):
         self.t_embedding = nn.Embedding(self.topic_vocab_size, config.topic_embed_size)
         if self.use_hcf:
             # dialogActEmbedding
-            self.d_embedding = nn.Embedding(self.da_vocab_size, config.da_embed_size)
+            self.d_embedding = nn.Embedding(self.da_vocab_size, config.da_embed_size, padding_idx=0)
         # wordEmbedding
         self.embedding = nn.Embedding(self.vocab_size, self.embed_size, padding_idx=0)
 
@@ -172,15 +173,18 @@ class KgRnnCVAE(BaseTFModel):
         # contextRNN
         self.enc_cell = self.get_rnncell(config.cell_type, joint_embedding_size, self.context_cell_size, keep_prob=1.0, num_layer=config.num_layer)
 
-        self.attribute_fc1 = nn.Sequential(nn.Linear(config.da_embed_size, 30), nn.Tanh())
+        self.attribute_fc1 = nn.Sequential(nn.Linear(config.da_embed_size, config.da_embed_size), nn.Tanh())
+        if config.use_feat:
+            cond_embedding_size = config.topic_embed_size + 4 + 4 + self.context_cell_size
+        else:
+            cond_embedding_size = self.context_cell_size
 
-        cond_embedding_size = config.topic_embed_size + 4 + 4 + self.context_cell_size
         if config.use_da_seq:
             cond_embedding_size += self.da_cell_size
         # recognitionNetwork
         recog_input_size = cond_embedding_size + output_embedding_size
         if self.use_hcf:
-            recog_input_size += 30
+            recog_input_size += config.da_embed_size
         
         self.recogNet_mulogvar = nn.Linear(recog_input_size, config.latent_size * 2)
 
@@ -219,7 +223,7 @@ class KgRnnCVAE(BaseTFModel):
         # decoder
         dec_input_embedding_size = self.embed_size
         if self.use_hcf:
-            dec_input_embedding_size += 30
+            dec_input_embedding_size += config.da_embed_size
         self.dec_cell = self.get_rnncell(config.cell_type, dec_input_embedding_size, self.dec_cell_size, config.keep_prob, config.num_layer)
         self.dec_cell_proj = nn.Linear(self.dec_cell_size, self.vocab_size)
 
@@ -265,13 +269,6 @@ class KgRnnCVAE(BaseTFModel):
         if self.use_hcf:
             with variable_scope.variable_scope("dialogActEmbedding"):
                 da_embedding = self.d_embedding(self.output_das)
-                # TODO: define Encoder for DA
-                # if self.use_da_seq:
-                    # self.da_seq = self.da_seq.view(-1, 1)
-                    # da_input_embedding = self.d_embedding(self.da_seq)
-                    # print(da_input_embedding.size())
-                    # da_input_embedding, da_sent_size = get_rnn_encode(da_input_embedding, self.da_seq_cell, scope="sent_rnn")
-                    # da_input_embedding = da_input_embedding.view(-1, max_dialog_len, da_sent_size)
 
         with variable_scope.variable_scope("wordEmbedding"):
             self.input_contexts = self.input_contexts.view(-1, self.max_utt_len)
@@ -348,8 +345,12 @@ class KgRnnCVAE(BaseTFModel):
         if self.use_hcf:
             attribute_embedding = da_embedding
             attribute_fc1 = self.attribute_fc1(attribute_embedding)
-
-        cond_list = [da_input_embedding, topic_embedding, self.my_profile, self.ot_profile, enc_last_state]
+        if self.use_feat:
+            cond_list = [topic_embedding, self.my_profile, self.ot_profile, enc_last_state]
+        else:
+            cond_list = [enc_last_state]
+        if self.use_da_seq:
+            cond_list.append(da_input_embedding)
         cond_embedding = torch.cat(cond_list, 1)
 
         with variable_scope.variable_scope("recognitionNetwork"):
