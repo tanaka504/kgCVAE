@@ -144,13 +144,14 @@ def main():
 
                     # still save the best train model
                     if FLAGS.save_model:
-                        print("Save model!!")
+                        print("Save model!! to {}".format(log_dir))
                         torch.save(model.state_dict(), dm_checkpoint_path %(epoch))
                     best_dev_loss = valid_loss
 
                 if config.early_stop and patience <= done_epoch:
                     print("!!Early stop due to run out of patience!!")
                     break
+            print('DAseq: {}, Feature: {}'.format(str(config.use_da_seq), str(config.use_feat)))
             print("Best validation loss %f" % best_dev_loss)
             print("Done training")
         else:

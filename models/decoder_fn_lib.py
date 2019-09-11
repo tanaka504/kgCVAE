@@ -12,7 +12,7 @@ import torch.nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from .utils import dynamic_rnn
+from .utils import dynamic_rnn, dynamic_rnn_merge
 
 def inference_loop(cell, output_fn, embeddings,
                     encoder_state,
@@ -96,7 +96,6 @@ def inference_loop(cell, output_fn, embeddings,
 
     return torch.cat([_.unsqueeze(1) for _ in outputs], 1), cell_state, torch.cat([_.unsqueeze(1) for _ in context_state], 1)
 
-# TODO: implement Decoder for Merge Model
 
 def inference_loop_merge(cell, output_fn, embeddings,
                        encoder_state,
@@ -170,7 +169,8 @@ def inference_loop_merge(cell, output_fn, embeddings,
             next_input = torch.cat([next_input, context_vector], 1)
         if done.long().sum() == batch_size:
             break
-
+        
+        # TODO: At first step, estimate response DA using  cell
         cell_output, cell_state = cell(next_input.unsqueeze(1), cell_state)
         # Squeeze the time dimension
         cell_output = cell_output.squeeze(1)
@@ -186,3 +186,9 @@ def train_loop(cell, output_fn, inputs, init_state, context_vector, sequence_len
     if context_vector is not None:
         inputs = torch.cat([inputs, context_vector.unsqueeze(1).expand(inputs.size(0), inputs.size(1), context_vector.size(1))], 2)
     return dynamic_rnn(cell, inputs, sequence_length, init_state, output_fn) + (None,)
+
+def train_loop_merge(cell, output_fn, inputs, init_state, context_vector, sequence_length, merge_fn):
+    # TODO: Firstly, estimate response DA using cell
+    # if context_vector is not None:
+    #     inputs = torch.cat([inputs, context_vector.unsqueeze(1).expand(inputs.size(0), inputs.size(1), context_vector.size(1))], 2)
+    return dynamic_rnn_merge(cell, inputs, sequence_length, init_state, output_fn, merge_fn) + (None,)

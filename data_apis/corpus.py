@@ -40,7 +40,7 @@ class SWDADialogCorpus(object):
         all_lenes = []
 
         for l in data:
-            lower_utts = [(caller, ["<s>"] + nltk.WordPunctTokenizer().tokenize(utt.lower()) + ["</s>"], feat)
+            lower_utts = [(caller, ["<tag>", "<s>"] + nltk.WordPunctTokenizer().tokenize(utt.lower()) + ["</s>"], feat)
                           for caller, utt, feat in l["utts"]]
             all_lenes.extend([len(u) for c, u, f in lower_utts])
 
@@ -82,6 +82,7 @@ class SWDADialogCorpus(object):
         self.unk_id = self.rev_vocab["<unk>"]
         print("<d> index %d" % self.rev_vocab["<d>"])
         print("<sil> index %d" % self.rev_vocab.get("<sil>", -1))
+        pkl.dump(self.rev_vocab, open('utterance_vocab.dict', 'wb'))
 
         # create topic vocab
         all_topics = []
@@ -98,6 +99,7 @@ class SWDADialogCorpus(object):
         self.dialog_act_vocab = ['padding'] + [t for t, cnt in Counter(all_dialog_acts).most_common()]
         self.dialog_act_vocab.append('initial-utt')
         self.rev_dialog_act_vocab = {t: idx for idx, t in enumerate(self.dialog_act_vocab)}
+        pkl.dump(self.rev_dialog_act_vocab, open('da_vocab.dict', 'wb'))
 
         print(self.dialog_act_vocab)
         print("%d dialog acts in train data" % len(self.dialog_act_vocab))

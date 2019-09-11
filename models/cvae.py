@@ -136,6 +136,7 @@ class KgRnnCVAE(BaseTFModel):
         self.use_hcf = config.use_hcf
         self.use_da_seq = config.use_da_seq
         self.use_feat = config.use_feat
+        self.use_merge = config.use_merge
         self.embed_size = config.embed_size
         self.da_embed_size = config.da_embed_size
         self.sent_type = config.sent_type
@@ -164,7 +165,6 @@ class KgRnnCVAE(BaseTFModel):
             self.bi_sent_cell = self.get_rnncell("gru", self.embed_size, self.sent_cell_size, keep_prob=1.0, num_layer=1, bidirectional=True)
             input_embedding_size = output_embedding_size = self.sent_cell_size * 2
 
-        # TODO: define RNN cell for DA
         if self.use_da_seq:
             self.da_seq_cell = self.get_rnncell("gru", self.da_embed_size, self.da_cell_size, self.keep_prob, 1)
 
@@ -210,7 +210,16 @@ class KgRnnCVAE(BaseTFModel):
                 nn.Tanh(),
                 nn.Dropout(1 - config.keep_prob),
                 nn.Linear(400, self.da_vocab_size))
-            dec_inputs_size = gen_inputs_size + 30
+            if self.use_merge:
+                self.da_merge = nn.Sequential(
+                    nn.Linear(config.dec_cell_size, 400),
+                    nn.Tanh(),
+                    nn.Dropout(1 - config.keep_prob),
+                    nn.Linear(400, self.da_vocab_size)
+                )
+                dec_inputs_size = gen_inputs_size
+            else:
+                dec_inputs_size = gen_inputs_size + self.da_embed_size
         else:
             dec_inputs_size = gen_inputs_size
 
@@ -222,7 +231,7 @@ class KgRnnCVAE(BaseTFModel):
 
         # decoder
         dec_input_embedding_size = self.embed_size
-        if self.use_hcf:
+        if self.use_hcf and not self.use_merge:
             dec_input_embedding_size += config.da_embed_size
         self.dec_cell = self.get_rnncell(config.cell_type, dec_input_embedding_size, self.dec_cell_size, config.keep_prob, config.num_layer)
         self.dec_cell_proj = nn.Linear(self.dec_cell_size, self.vocab_size)
@@ -387,7 +396,12 @@ class KgRnnCVAE(BaseTFModel):
                     selected_attribute_embedding = pred_attribute_embedding
                 else:
                     selected_attribute_embedding = attribute_embedding
-                dec_inputs = torch.cat([gen_inputs, selected_attribute_embedding], 1)
+
+                # control Speaker Model
+                if self.use_merge:
+                    dec_inputs = gen_inputs
+                else:
+                    dec_inputs = torch.cat([gen_inputs, selected_attribute_embedding], 1)
             else:
                 self.da_logits = gen_inputs.new_zeros(batch_size, self.da_vocab_size)
                 dec_inputs = gen_inputs
@@ -400,6 +414,7 @@ class KgRnnCVAE(BaseTFModel):
                 dec_init_state = self.dec_init_state_net(dec_inputs).unsqueeze(0)
 
         with variable_scope.variable_scope("decoder"):
+            # TODO: separate merge model condition
             if mode == 'test':
                 # loop_func = decoder_fn_lib.context_decoder_fn_inference(None, dec_init_state, self.embedding,
                 #                                                         start_of_sequence_id=self.go_id,
@@ -419,22 +434,45 @@ class KgRnnCVAE(BaseTFModel):
                                                                     decode_type='greedy')
                 # print(final_context_state)
             else:
-                # loop_func = decoder_fn_lib.context_decoder_fn_train(dec_init_state, selected_attribute_embedding)
-                # apply word dropping. Set dropped word to 0
-                input_tokens = self.output_tokens[:, :-1]
-                if self.dec_keep_prob < 1.0:
-                    # if token is 0, then embedding is 0, it's the same as word drop
-                    keep_mask = input_tokens.new_empty(input_tokens.size()).bernoulli_(config.dec_keep_prob)
-                    input_tokens = input_tokens * keep_mask
+                if self.use_merge:
+                    # loop_func = decoder_fn_lib.context_decoder_fn_train(dec_init_state, selected_attribute_embedding)
+                    # apply word dropping. Set dropped word to 0
+                    input_tokens = self.output_tokens[:, :-1]
+                    if self.dec_keep_prob < 1.0:
+                        # if token is 0, then embedding is 0, it's the same as word drop
+                        keep_mask = input_tokens.new_empty(input_tokens.size()).bernoulli_(config.dec_keep_prob)
+                        input_tokens = input_tokens * keep_mask
 
-                dec_input_embedding = self.embedding(input_tokens)
-                dec_seq_lens = self.output_lens - 1
+                    dec_input_embedding = self.embedding(input_tokens)
+                    dec_seq_lens = self.output_lens - 1
 
-                # Apply embedding dropout
-                dec_input_embedding = F.dropout(dec_input_embedding, 1 - self.keep_prob, self.training)
+                    # Apply embedding dropout
+                    dec_input_embedding = F.dropout(dec_input_embedding, 1 - self.keep_prob, self.training)
 
-                dec_outs, _, final_context_state =  decoder_fn_lib.train_loop(self.dec_cell, self.dec_cell_proj, dec_input_embedding, 
-                    init_state=dec_init_state, context_vector=selected_attribute_embedding, sequence_length=dec_seq_lens)
+                    dec_outs, _, da_output, final_context_state = decoder_fn_lib.train_loop_merge(self.dec_cell, self.dec_cell_proj, dec_input_embedding,
+                        init_state=dec_init_state, context_vector=selected_attribute_embedding, sequence_length=dec_seq_lens, merge_fn=self.da_merge)
+
+                else:
+                    # loop_func = decoder_fn_lib.context_decoder_fn_train(dec_init_state, selected_attribute_embedding)
+                    # apply word dropping. Set dropped word to 0
+                    input_tokens = self.output_tokens[:, :-1]
+                    if self.dec_keep_prob < 1.0:
+                        # if token is 0, then embedding is 0, it's the same as word drop
+                        keep_mask = input_tokens.new_empty(input_tokens.size()).bernoulli_(config.dec_keep_prob)
+                        input_tokens = input_tokens * keep_mask
+
+                    dec_input_embedding = self.embedding(input_tokens)
+                    dec_seq_lens = self.output_lens - 1
+
+                    # Apply embedding dropout
+                    dec_input_embedding = F.dropout(dec_input_embedding, 1 - self.keep_prob, self.training)
+
+                    dec_outs, _, final_context_state = decoder_fn_lib.train_loop(self.dec_cell, self.dec_cell_proj,
+                                                                                 dec_input_embedding,
+                                                                                 init_state=dec_init_state,
+                                                                                 context_vector=selected_attribute_embedding,
+                                                                                 sequence_length=dec_seq_lens)
+
 
             # dec_outs, _, final_context_state = dynamic_rnn_decoder(dec_cell, loop_func, inputs=dec_input_embedding, sequence_length=dec_seq_lens)
             if final_context_state is not None:
@@ -447,7 +485,10 @@ class KgRnnCVAE(BaseTFModel):
 
         if not mode == 'test':
             with variable_scope.variable_scope("loss"):
-                labels = self.output_tokens[:, 1:]
+                if self.use_merge:
+                    labels = self.output_tokens[:, 2:]
+                else:
+                    labels = self.output_tokens[:, 1:]
                 label_mask = torch.sign(labels).detach().float()
 
                 # rc_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=dec_outs, labels=labels)
@@ -466,9 +507,13 @@ class KgRnnCVAE(BaseTFModel):
 
                 # reconstruct the meta info about X
                 if self.use_hcf:
-                    self.avg_da_loss = F.cross_entropy(self.da_logits, self.output_das)
+                    if self.use_merge:
+                        self.avg_da_loss = F.cross_entropy(da_output, self.output_das)
+                    else:
+                        self.avg_da_loss = F.cross_entropy(self.da_logits, self.output_das)
                 else:
                     self.avg_da_loss = self.avg_bow_loss.new_tensor(0)
+
 
                 # print(recog_mu.sum(), recog_logvar.sum(), prior_mu.sum(), prior_logvar.sum())
                 kld = gaussian_kld(recog_mu, recog_logvar, prior_mu, prior_logvar)

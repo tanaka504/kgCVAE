@@ -102,6 +102,62 @@ def dynamic_rnn(cell, inputs, sequence_length, init_state=None, output_fn=None):
     return outputs, state
 
 
+def dynamic_rnn_merge(cell, inputs, sequence_length, init_state=None, output_fn=None, merge_fn=None):
+    sorted_lens, len_ix = sequence_length.sort(0, descending=True)
+    sorted_lens = sorted_lens -1
+
+    # Used for later reorder
+    inv_ix = len_ix.clone()
+    inv_ix[len_ix] = torch.arange(0, len(len_ix)).type_as(inv_ix)
+
+    # The number of inputs that have lengths > 0
+    valid_num = torch.sign(sorted_lens).long().sum().item()
+    zero_num = inputs.size(0) - valid_num
+    # print('zero_num:', zero_num)
+
+    sorted_inputs = inputs[len_ix].contiguous()
+    if init_state is not None:
+        sorted_init_state = init_state[:, len_ix].contiguous()
+
+    # estimate DA initially
+    da_outputs, sorted_init_state = cell(sorted_inputs[:, 0].unsqueeze(1), sorted_init_state)
+    sorted_inputs = sorted_inputs[:, 1:]
+    da_outputs = merge_fn(da_outputs)
+    da_outputs = da_outputs.squeeze(1)
+
+
+    packed_inputs = pack_padded_sequence(sorted_inputs[:valid_num], list(sorted_lens[:valid_num]), batch_first=True)
+
+    if init_state is not None:
+        outputs, state = cell(packed_inputs, sorted_init_state[:, :valid_num])
+    else:
+        outputs, state = cell(packed_inputs)
+
+    # Reshape *final* output to (batch_size, hidden_size)
+    outputs, _ = pad_packed_sequence(outputs, batch_first=True)
+
+    # Add back the zero lengths
+    if zero_num > 0:
+        outputs = torch.cat([outputs, outputs.new_zeros(zero_num, outputs.size(1), outputs.size(2))], 0)
+        if init_state is not None:
+            state = torch.cat([state, sorted_init_state[:, valid_num:]], 1)
+        else:
+            state = torch.cat([state, state.new_zeros(state.size(0), zero_num, state.size(2))], 1)
+
+    # Reorder to the original order
+    outputs = outputs[inv_ix].contiguous()
+    state = state[:, inv_ix].contiguous()
+
+    # compensate the last last layer dropout, necessary????????? need to check!!!!!!!!
+    state = F.dropout(state, cell.dropout, cell.training)
+    outputs = F.dropout(outputs, cell.dropout, cell.training)
+
+    if output_fn is not None:
+        outputs = output_fn(outputs)
+
+    return outputs, state, da_outputs
+
+
 def get_rnn_encode(embedding, cell, length_mask=None, scope=None, reuse=None):
     """
     Assumption, the last dimension is the embedding
