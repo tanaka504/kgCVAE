@@ -99,9 +99,9 @@ def inference_loop(cell, output_fn, embeddings,
 
 def inference_loop_merge(cell, output_fn, embeddings,
                        encoder_state,
-                       start_of_sequence_id, end_of_sequence_id,
+                       start_of_sequence_id, end_of_sequence_id, tag_estimate_id,
                        maximum_length, num_decoder_symbols, context_vector,
-                       decode_type='greedy'):
+                       decode_type='greedy', merge_fn=None):
     """ A decoder function used during inference.
         In this decoder function we calculate the next input by applying an argmax across
         the feature dimension of the output from the decoder. This is a
@@ -139,6 +139,12 @@ def inference_loop_merge(cell, output_fn, embeddings,
     outputs = []
     context_state = []
     cell_state, cell_input, cell_output = encoder_state, None, None
+    tag_estimate_id = encoder_state.new_full((batch_size,), tag_estimate_id, dtype=torch.long)
+    tag_input = embeddings(tag_estimate_id)
+    da_output, cell_state = cell(tag_input.unsqueeze(1), cell_state)
+    da_output = da_output.squeeze(1)
+    da_output = merge_fn(da_output)
+
     for time in range(maximum_length + 1):
         if cell_output is None:
             # invariant that this is time == 0
@@ -165,12 +171,11 @@ def inference_loop_merge(cell, output_fn, embeddings,
             context_state.append(next_input_id)
 
         next_input = embeddings(next_input_id)
-        if context_vector is not None:
-            next_input = torch.cat([next_input, context_vector], 1)
+        # if context_vector is not None:
+        #     next_input = torch.cat([next_input, context_vector], 1)
         if done.long().sum() == batch_size:
             break
-        
-        # TODO: At first step, estimate response DA using  cell
+
         cell_output, cell_state = cell(next_input.unsqueeze(1), cell_state)
         # Squeeze the time dimension
         cell_output = cell_output.squeeze(1)
@@ -179,7 +184,7 @@ def inference_loop_merge(cell, output_fn, embeddings,
         cell_output = cell_output * (~done).float().unsqueeze(1)
 
     return torch.cat([_.unsqueeze(1) for _ in outputs], 1), cell_state, torch.cat(
-        [_.unsqueeze(1) for _ in context_state], 1)
+        [_.unsqueeze(1) for _ in context_state], 1), da_output
 
 
 def train_loop(cell, output_fn, inputs, init_state, context_vector, sequence_length):

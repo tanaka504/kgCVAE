@@ -128,6 +128,7 @@ class KgRnnCVAE(BaseTFModel):
         self.max_utt_len = config.max_utt_len
         self.go_id = self.rev_vocab["<s>"]
         self.eos_id = self.rev_vocab["</s>"]
+        self.tag_estimate_id = self.rev_vocab['<tag>']
         self.context_cell_size = config.cxt_cell_size
         self.sent_cell_size = config.sent_cell_size
         self.da_cell_size = config.da_cell_size
@@ -424,14 +425,31 @@ class KgRnnCVAE(BaseTFModel):
                 #                                                         context_vector=selected_attribute_embedding)
                 # dec_input_embedding = None
                 # dec_seq_lens = None
-                dec_outs, _, final_context_state = decoder_fn_lib.inference_loop(self.dec_cell, self.dec_cell_proj, self.embedding,
-                                                                    encoder_state = dec_init_state,
-                                                                    start_of_sequence_id=self.go_id,
-                                                                    end_of_sequence_id=self.eos_id,
-                                                                    maximum_length=self.max_utt_len,
-                                                                    num_decoder_symbols=self.vocab_size,
-                                                                    context_vector=selected_attribute_embedding,
-                                                                    decode_type='greedy')
+                if self.use_merge:
+                    dec_outs, _, final_context_state, da_output = decoder_fn_lib.inference_loop_merge(self.dec_cell, self.dec_cell_proj,
+                                                                                         self.embedding,
+                                                                                         encoder_state=dec_init_state,
+                                                                                         start_of_sequence_id=self.go_id,
+                                                                                         end_of_sequence_id=self.eos_id,
+                                                                                         tag_estimate_id=self.tag_estimate_id,
+                                                                                         maximum_length=self.max_utt_len,
+                                                                                         num_decoder_symbols=self.vocab_size,
+                                                                                         context_vector=selected_attribute_embedding,
+                                                                                         decode_type='greedy',
+                                                                                           merge_fn=self.da_merge)
+                    print(self.da_logits.size())
+                    print(da_output.size())
+
+                    self.da_logits = da_output
+                else:
+                    dec_outs, _, final_context_state = decoder_fn_lib.inference_loop(self.dec_cell, self.dec_cell_proj, self.embedding,
+                                                                        encoder_state = dec_init_state,
+                                                                        start_of_sequence_id=self.go_id,
+                                                                        end_of_sequence_id=self.eos_id,
+                                                                        maximum_length=self.max_utt_len,
+                                                                        num_decoder_symbols=self.vocab_size,
+                                                                        context_vector=selected_attribute_embedding,
+                                                                        decode_type='greedy')
                 # print(final_context_state)
             else:
                 if self.use_merge:
@@ -452,6 +470,7 @@ class KgRnnCVAE(BaseTFModel):
                     dec_outs, _, da_output, final_context_state = decoder_fn_lib.train_loop_merge(self.dec_cell, self.dec_cell_proj, dec_input_embedding,
                         init_state=dec_init_state, context_vector=selected_attribute_embedding, sequence_length=dec_seq_lens, merge_fn=self.da_merge)
 
+                    self.da_logits = da_output
                 else:
                     # loop_func = decoder_fn_lib.context_decoder_fn_train(dec_init_state, selected_attribute_embedding)
                     # apply word dropping. Set dropped word to 0
@@ -478,6 +497,8 @@ class KgRnnCVAE(BaseTFModel):
             if final_context_state is not None:
                 #final_context_state = final_context_state[:, 0:dec_outs.size(1)]
                 self.dec_out_words = final_context_state
+                if self.use_merge:
+                    self.estimated_da = da_output
                 # mask = torch.sign(torch.max(dec_outs, 2)[0]).float()
                 # self.dec_out_words = final_context_state * mask # no need to reverse here unlike original code
             else:
