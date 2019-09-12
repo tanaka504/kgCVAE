@@ -138,6 +138,7 @@ class KgRnnCVAE(BaseTFModel):
         self.use_da_seq = config.use_da_seq
         self.use_feat = config.use_feat
         self.use_merge = config.use_merge
+        self.merge_type = config.merge_type
         self.embed_size = config.embed_size
         self.da_embed_size = config.da_embed_size
         self.sent_type = config.sent_type
@@ -415,7 +416,6 @@ class KgRnnCVAE(BaseTFModel):
                 dec_init_state = self.dec_init_state_net(dec_inputs).unsqueeze(0)
 
         with variable_scope.variable_scope("decoder"):
-            # TODO: separate merge model condition
             if mode == 'test':
                 # loop_func = decoder_fn_lib.context_decoder_fn_inference(None, dec_init_state, self.embedding,
                 #                                                         start_of_sequence_id=self.go_id,
@@ -436,10 +436,8 @@ class KgRnnCVAE(BaseTFModel):
                                                                                          num_decoder_symbols=self.vocab_size,
                                                                                          context_vector=selected_attribute_embedding,
                                                                                          decode_type='greedy',
-                                                                                           merge_fn=self.da_merge)
-                    print(self.da_logits.size())
-                    print(da_output.size())
-
+                                                                                           merge_fn=self.da_merge,
+                                                                                                      merge_type=self.merge_type)
                     self.da_logits = da_output
                 else:
                     dec_outs, _, final_context_state = decoder_fn_lib.inference_loop(self.dec_cell, self.dec_cell_proj, self.embedding,
@@ -468,7 +466,7 @@ class KgRnnCVAE(BaseTFModel):
                     dec_input_embedding = F.dropout(dec_input_embedding, 1 - self.keep_prob, self.training)
 
                     dec_outs, _, da_output, final_context_state = decoder_fn_lib.train_loop_merge(self.dec_cell, self.dec_cell_proj, dec_input_embedding,
-                        init_state=dec_init_state, context_vector=selected_attribute_embedding, sequence_length=dec_seq_lens, merge_fn=self.da_merge)
+                        init_state=dec_init_state, context_vector=selected_attribute_embedding, sequence_length=dec_seq_lens, merge_fn=self.da_merge, merge_type=self.merge_type)
 
                     self.da_logits = da_output
                 else:

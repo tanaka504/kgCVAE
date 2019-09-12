@@ -7,6 +7,7 @@ class KgCVAEConfig(object):
     use_da_seq = True
     use_feat = False
     use_merge = True
+    merge_type = 'last'
     update_limit = 3000  # the number of mini-batch before evaluating the model
 
     # how to encode utterance.

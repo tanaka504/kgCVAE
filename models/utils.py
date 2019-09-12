@@ -102,7 +102,7 @@ def dynamic_rnn(cell, inputs, sequence_length, init_state=None, output_fn=None):
     return outputs, state
 
 
-def dynamic_rnn_merge(cell, inputs, sequence_length, init_state=None, output_fn=None, merge_fn=None):
+def dynamic_rnn_merge(cell, inputs, sequence_length, init_state=None, output_fn=None, merge_fn=None, merge_type='init'):
     sorted_lens, len_ix = sequence_length.sort(0, descending=True)
     sorted_lens = sorted_lens -1
 
@@ -120,10 +120,13 @@ def dynamic_rnn_merge(cell, inputs, sequence_length, init_state=None, output_fn=
         sorted_init_state = init_state[:, len_ix].contiguous()
 
     # estimate DA initially
-    da_outputs, sorted_init_state = cell(sorted_inputs[:, 0].unsqueeze(1), sorted_init_state)
-    sorted_inputs = sorted_inputs[:, 1:]
-    da_outputs = merge_fn(da_outputs)
-    da_outputs = da_outputs.squeeze(1)
+    if merge_type == 'init':
+        da_outputs, sorted_init_state = cell(sorted_inputs[:, 0].unsqueeze(1), sorted_init_state)
+        sorted_inputs = sorted_inputs[:, 1:]
+        da_outputs = merge_fn(da_outputs)
+        da_outputs = da_outputs.squeeze(1)
+    elif merge_type == 'last':
+        sorted_inputs = sorted_inputs[:, :-1]
 
 
     packed_inputs = pack_padded_sequence(sorted_inputs[:valid_num], list(sorted_lens[:valid_num]), batch_first=True)
@@ -135,6 +138,12 @@ def dynamic_rnn_merge(cell, inputs, sequence_length, init_state=None, output_fn=
 
     # Reshape *final* output to (batch_size, hidden_size)
     outputs, _ = pad_packed_sequence(outputs, batch_first=True)
+
+    # estimate DA at last step
+    if merge_type == 'last':
+        da_outputs, state = cell(sorted_inputs[:, -1].unsqueeze(1), state)
+        da_outputs = merge_fn(da_outputs)
+        da_outputs = da_outputs.squeeze(1)
 
     # Add back the zero lengths
     if zero_num > 0:

@@ -101,7 +101,7 @@ def inference_loop_merge(cell, output_fn, embeddings,
                        encoder_state,
                        start_of_sequence_id, end_of_sequence_id, tag_estimate_id,
                        maximum_length, num_decoder_symbols, context_vector,
-                       decode_type='greedy', merge_fn=None):
+                       decode_type='greedy', merge_fn=None, merge_type='init'):
     """ A decoder function used during inference.
         In this decoder function we calculate the next input by applying an argmax across
         the feature dimension of the output from the decoder. This is a
@@ -141,9 +141,12 @@ def inference_loop_merge(cell, output_fn, embeddings,
     cell_state, cell_input, cell_output = encoder_state, None, None
     tag_estimate_id = encoder_state.new_full((batch_size,), tag_estimate_id, dtype=torch.long)
     tag_input = embeddings(tag_estimate_id)
-    da_output, cell_state = cell(tag_input.unsqueeze(1), cell_state)
-    da_output = da_output.squeeze(1)
-    da_output = merge_fn(da_output)
+
+    # estimate DA initially
+    if merge_type == 'init':
+        da_output, cell_state = cell(tag_input.unsqueeze(1), cell_state)
+        da_output = da_output.squeeze(1)
+        da_output = merge_fn(da_output)
 
     for time in range(maximum_length + 1):
         if cell_output is None:
@@ -183,6 +186,13 @@ def inference_loop_merge(cell, output_fn, embeddings,
         # zero out done sequences
         cell_output = cell_output * (~done).float().unsqueeze(1)
 
+    # estimate DA at last step
+    if merge_type == 'last':
+        da_output, cell_state = cell(tag_input.unsqueeze(1), cell_state)
+        da_output = da_output.squeeze(1)
+        da_output = merge_fn(da_output)
+
+
     return torch.cat([_.unsqueeze(1) for _ in outputs], 1), cell_state, torch.cat(
         [_.unsqueeze(1) for _ in context_state], 1), da_output
 
@@ -192,8 +202,7 @@ def train_loop(cell, output_fn, inputs, init_state, context_vector, sequence_len
         inputs = torch.cat([inputs, context_vector.unsqueeze(1).expand(inputs.size(0), inputs.size(1), context_vector.size(1))], 2)
     return dynamic_rnn(cell, inputs, sequence_length, init_state, output_fn) + (None,)
 
-def train_loop_merge(cell, output_fn, inputs, init_state, context_vector, sequence_length, merge_fn):
-    # TODO: Firstly, estimate response DA using cell
+def train_loop_merge(cell, output_fn, inputs, init_state, context_vector, sequence_length, merge_fn, merge_type):
     # if context_vector is not None:
     #     inputs = torch.cat([inputs, context_vector.unsqueeze(1).expand(inputs.size(0), inputs.size(1), context_vector.size(1))], 2)
-    return dynamic_rnn_merge(cell, inputs, sequence_length, init_state, output_fn, merge_fn) + (None,)
+    return dynamic_rnn_merge(cell, inputs, sequence_length, init_state, output_fn, merge_fn, merge_type) + (None,)

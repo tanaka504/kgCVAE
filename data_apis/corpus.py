@@ -10,10 +10,11 @@ class SWDADialogCorpus(object):
     sentiment_id = 1
     liwc_id = 2
 
-    def __init__(self, corpus_path, max_vocab_cnt=10000, word2vec=None, word2vec_dim=None):
+    def __init__(self, config, corpus_path, max_vocab_cnt=10000, word2vec=None, word2vec_dim=None):
         """
         :param corpus_path: the folder that contains the SWDA dialog corpus
         """
+        self.config = config
         self._path = corpus_path
         self.word_vec_path = word2vec
         self.word2vec_dim = word2vec_dim
@@ -40,8 +41,16 @@ class SWDADialogCorpus(object):
         all_lenes = []
 
         for l in data:
-            lower_utts = [(caller, ["<tag>", "<s>"] + nltk.WordPunctTokenizer().tokenize(utt.lower()) + ["</s>"], feat)
-                          for caller, utt, feat in l["utts"]]
+            if self.config.use_merge:
+                if self.config.merge_type == 'init':
+                    lower_utts = [(caller, ["<tag>", "<s>"] + nltk.WordPunctTokenizer().tokenize(utt.lower()) + ["</s>"], feat)
+                                  for caller, utt, feat in l["utts"]]
+                elif self.config.merge_type == 'last':
+                    lower_utts = [(caller, ["<s>"] + nltk.WordPunctTokenizer().tokenize(utt.lower()) + ["</s>", '<tag>'], feat)
+                                for caller, utt, feat in l["utts"]]
+            else:
+                lower_utts = [(caller, ["<s>"] + nltk.WordPunctTokenizer().tokenize(utt.lower()) + ["</s>"], feat)
+                            for caller, utt, feat in l["utts"]]
             all_lenes.extend([len(u) for c, u, f in lower_utts])
 
             a_age = float(l["A"]["age"])/100.0

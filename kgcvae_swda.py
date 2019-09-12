@@ -53,7 +53,7 @@ def main():
     pp(config)
 
     # get data set
-    api = SWDADialogCorpus(FLAGS.data_dir, word2vec=FLAGS.word2vec_path, word2vec_dim=config.embed_size)
+    api = SWDADialogCorpus(config=config, corpus_path=FLAGS.data_dir, word2vec=FLAGS.word2vec_path, word2vec_dim=config.embed_size)
     dial_corpus = api.get_dialog_corpus()
     meta_corpus = api.get_meta_corpus()
 
