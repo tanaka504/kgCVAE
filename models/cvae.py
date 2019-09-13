@@ -505,7 +505,10 @@ class KgRnnCVAE(BaseTFModel):
         if not mode == 'test':
             with variable_scope.variable_scope("loss"):
                 if self.use_merge:
-                    labels = self.output_tokens[:, 2:]
+                    if self.merge_type == 'init':
+                        labels = self.output_tokens[:, 2:]
+                    elif self.merge_type == 'last':
+                        labels = self.output_tokens[:, 1:-1]
                 else:
                     labels = self.output_tokens[:, 1:]
                 label_mask = torch.sign(labels).detach().float()
