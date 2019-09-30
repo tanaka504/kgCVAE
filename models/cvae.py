@@ -593,7 +593,7 @@ class KgRnnCVAE(BaseTFModel):
         bow_losses = []
         local_t = 0
         start_time = time.time()
-        loss_names =  ["elbo_loss", "bow_loss", "rc_loss", "rc_peplexity", "kl_loss"]
+        loss_names = ["elbo_loss", "bow_loss", "rc_loss", "rc_peplexity", "kl_loss"]
         while True:
             batch = train_feed.next_batch()
             if batch is None:
