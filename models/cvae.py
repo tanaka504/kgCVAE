@@ -128,7 +128,8 @@ class KgRnnCVAE(BaseTFModel):
         self.max_utt_len = config.max_utt_len
         self.go_id = self.rev_vocab["<s>"]
         self.eos_id = self.rev_vocab["</s>"]
-        self.tag_estimate_id = self.rev_vocab['<tag>']
+        if config.use_merge:
+            self.tag_estimate_id = self.rev_vocab['<tag>']
         self.context_cell_size = config.cxt_cell_size
         self.sent_cell_size = config.sent_cell_size
         self.da_cell_size = config.da_cell_size
