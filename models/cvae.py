@@ -137,8 +137,10 @@ class KgRnnCVAE(BaseTFModel):
         self.use_hcf = config.use_hcf
         self.use_da_seq = config.use_da_seq
         self.use_feat = config.use_feat
+        self.cat_later = config.cat_later
         self.use_merge = config.use_merge
         self.merge_type = config.merge_type
+
         self.embed_size = config.embed_size
         self.da_embed_size = config.da_embed_size
         self.sent_type = config.sent_type
@@ -181,8 +183,10 @@ class KgRnnCVAE(BaseTFModel):
         else:
             cond_embedding_size = self.context_cell_size
 
+        # Encode Dialog Act sequence
         if config.use_da_seq:
             cond_embedding_size += self.da_cell_size
+
         # recognitionNetwork
         recog_input_size = cond_embedding_size + output_embedding_size
         if self.use_hcf:
@@ -196,8 +200,10 @@ class KgRnnCVAE(BaseTFModel):
             nn.Linear(cond_embedding_size, np.maximum(config.latent_size * 2, 100)),
             nn.Tanh(),
             nn.Linear(np.maximum(config.latent_size * 2, 100), config.latent_size * 2))
-
-        gen_inputs_size = cond_embedding_size + config.latent_size
+        if self.cat_later:
+            gen_inputs_size = cond_embedding_size + config.latent_size + config.da_cell_size
+        else:
+            gen_inputs_size = cond_embedding_size + config.latent_size
         # BOW loss
         self.bow_project = nn.Sequential(
             nn.Linear(gen_inputs_size, 400),
@@ -360,7 +366,7 @@ class KgRnnCVAE(BaseTFModel):
             cond_list = [topic_embedding, self.my_profile, self.ot_profile, enc_last_state]
         else:
             cond_list = [enc_last_state]
-        if self.use_da_seq:
+        if self.use_da_seq and self.cat_later:
             cond_list.append(da_input_embedding)
         cond_embedding = torch.cat(cond_list, 1)
 
@@ -384,7 +390,10 @@ class KgRnnCVAE(BaseTFModel):
                 latent_sample = sample_gaussian(recog_mu, recog_logvar)
 
         with variable_scope.variable_scope("generationNetwork"):
-            gen_inputs = torch.cat([cond_embedding, latent_sample], 1)
+            if self.cat_later:
+                gen_inputs = torch.cat([cond_embedding, latent_sample, da_input_embedding], 1)
+            else:
+                gen_inputs = torch.cat([cond_embedding, latent_sample], 1)
 
             # BOW loss
             self.bow_logits = self.bow_project(gen_inputs)
