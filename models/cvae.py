@@ -335,6 +335,8 @@ class KgRnnCVAE(BaseTFModel):
             floor_one_hot = floor_one_hot.view(-1, max_dialog_len, 2)
 
             joint_embedding = torch.cat([input_embedding, floor_one_hot], 2)
+            # TODO: try to concat DA at every step
+            # TODO: try attention
 
         with variable_scope.variable_scope("contextRNN"):
             # and enc_last_state will be same as the true last state
@@ -710,7 +712,7 @@ class KgRnnCVAE(BaseTFModel):
                     dest.write("Src %d-%d: %s\n" % (t_id, true_floor[b_id, t_id], src_str))
                 # print the true outputs
                 true_tokens = [self.vocab[e] for e in true_outs[b_id].tolist() if e not in [0, self.eos_id, self.go_id]]
-                true_str = " ".join(true_tokens).replace(" ' ", "'")
+                true_str = " ".join(true_tokens)#.replace(" ' ", "'")
                 da_str = self.da_vocab[true_das[b_id]]
                 # print the predicted outputs
                 dest.write("Target (%s) >> %s\n" % (da_str, true_str))
@@ -719,7 +721,7 @@ class KgRnnCVAE(BaseTFModel):
                     pred_outs = sample_words[r_id]
                     pred_da = np.argmax(sample_das[r_id], axis=1)[0]
                     pred_tokens = [self.vocab[e] for e in pred_outs[b_id].tolist() if e != self.eos_id and e != 0]
-                    pred_str = " ".join(pred_tokens).replace(" ' ", "'")
+                    pred_str = " ".join(pred_tokens)#.replace(" ' ", "'")
                     dest.write("Sample %d (%s) >> %s\n" % (r_id, self.da_vocab[pred_da], pred_str))
                     local_tokens.append(pred_tokens)
 

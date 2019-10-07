@@ -26,9 +26,6 @@ def parse(result, refs):
             hyp = sample_pattern.search(line).group(2)
             da_preds.append(da_pred)
             hyps.append(hyp)
-    print(ref)
-    print(refs['responses'])
-    input()
     # assert len(context) == len(refs['context']), {'txt': context, 'json': refs['context']}
     try:
         return {'DA_preds': da_preds,
